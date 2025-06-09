@@ -1,24 +1,44 @@
 // Centralize the base IP address
-const API_HOST = "3.107.34.54"
+const API_HOST = "54.153.141.15"
 
-// Define the base URLs with appropriate ports for different services
-const MAIN_API_URL = window.location.protocol === "https:" ? `https://${API_HOST}:5000` : `http://${API_HOST}:5000`
+// Define functions to safely get the base URLs depending on runtime
+function getMainApiUrl() {
+  if (typeof window !== "undefined") {
+    return window.location.protocol === "https:"
+      ? `https://${API_HOST}:5000`
+      : `http://${API_HOST}:5000`
+  }
+  return `http://${API_HOST}:5000` // default for SSR
+}
 
-const PAYMENT_API_URL = window.location.protocol === "https:" ? `https://${API_HOST}:5002` : `http://${API_HOST}:5002`
+function getPaymentApiUrl() {
+  if (typeof window !== "undefined") {
+    return window.location.protocol === "https:"
+      ? `https://${API_HOST}:5002`
+      : `http://${API_HOST}:5002`
+  }
+  return `http://${API_HOST}:5002`
+}
 
-const VERIFICATION_API_URL =
-  window.location.protocol === "https:" ? `https://${API_HOST}:5001` : `http://${API_HOST}:5001`
+function getVerificationApiUrl() {
+  if (typeof window !== "undefined") {
+    return window.location.protocol === "https:"
+      ? `https://${API_HOST}:5001`
+      : `http://${API_HOST}:5001`
+  }
+  return `http://${API_HOST}:5001`
+}
 
-// Export the main API URL as the default API_BASE_URL for backward compatibility
-export const API_BASE_URL = MAIN_API_URL
+// Export a default base URL
+export const API_BASE_URL = getMainApiUrl()
 
-// API client with fetch - updated to use the appropriate base URL
+// Generic API client
 export async function apiClient<T>(
   endpoint: string,
   {
     data,
     token,
-    baseUrl = MAIN_API_URL, // Default to main API URL
+    baseUrl = getMainApiUrl(), // SSR-safe
     ...customConfig
   }: {
     data?: any
@@ -48,7 +68,6 @@ export async function apiClient<T>(
       body: config.body ? JSON.parse(config.body as string) : undefined,
     })
 
-    // Try direct request first
     try {
       const response = await fetch(`${baseUrl}${endpoint}`, config)
 
@@ -62,7 +81,9 @@ export async function apiClient<T>(
         const errorData = await response.json().catch(() => ({}))
         console.error(`API Error from ${endpoint}:`, errorData)
         return Promise.reject(
-          new Error(errorData.message || errorData.error || `API Error: ${response.status} ${response.statusText}`),
+          new Error(
+            errorData.message || errorData.error || `API Error: ${response.status} ${response.statusText}`,
+          ),
         )
       }
 
@@ -72,25 +93,37 @@ export async function apiClient<T>(
     } catch (directError) {
       console.error(`Direct API request failed:`, directError)
 
-      // If we're on HTTPS and trying to access HTTP, try a CORS proxy
-      if (window.location.protocol === "https:" && baseUrl.startsWith("http:")) {
-        console.log(`Trying CORS proxy for ${endpoint}`)
-        const proxyUrl = `https://cors-anywhere.herokuapp.com/${baseUrl}${endpoint}`
-        const proxyResponse = await fetch(proxyUrl, config)
+      // Handle HTTPS-to-HTTP scenario only on client
+      if (
+        typeof window !== "undefined" &&
+        window.location.protocol === "https:" &&
+        baseUrl.startsWith("http:")
+      ) {
+        try {
+          console.log(`Trying CORS proxy for ${endpoint}`)
+          const proxyUrl = `https://cors-anywhere.herokuapp.com/${baseUrl}${endpoint}`
+          const proxyResponse = await fetch(proxyUrl, config)
 
-        if (!proxyResponse.ok) {
-          const errorData = await proxyResponse.json().catch(() => ({}))
-          return Promise.reject(
-            new Error(errorData.message || errorData.error || `API Error via proxy: ${proxyResponse.status}`),
-          )
+          if (!proxyResponse.ok) {
+            const errorData = await proxyResponse.json().catch(() => ({}))
+            return Promise.reject(
+              new Error(
+                errorData.message ||
+                  errorData.error ||
+                  `API Error via proxy: ${proxyResponse.status}`,
+              ),
+            )
+          }
+
+          const proxyData = await proxyResponse.json()
+          console.log(`API Success via proxy from ${endpoint}:`, proxyData)
+          return proxyData
+        } catch (proxyError) {
+          console.error(`CORS proxy failed:`, proxyError)
+          throw proxyError
         }
-
-        const proxyData = await proxyResponse.json()
-        console.log(`API Success via proxy from ${endpoint}:`, proxyData)
-        return proxyData
       }
 
-      // If proxy doesn't work or we're not in a mixed content scenario, use mock data
       throw directError
     }
   } catch (error) {
@@ -98,6 +131,7 @@ export async function apiClient<T>(
     return Promise.reject(error)
   }
 }
+
 
 // Create a CORS proxy function to handle CORS issues if needed
 export async function fetchWithCorsProxy<T>(url: string, options: RequestInit = {}): Promise<T> {
