@@ -142,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Session expired. Please start over.")
       }
 
-      // Call the resend OTP endpoint
+      // Call the resend OTP endpoint with the new API base URL
       const response = await fetch(`${API_BASE_URL}/resend_otp`, {
         method: "POST",
         headers: {
@@ -230,4 +230,3 @@ export function useAuth() {
   }
   return context
 }
-

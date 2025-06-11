@@ -1,36 +1,5 @@
-// Centralize the base IP address
-const API_HOST = "54.153.141.15"
-
-// Define functions to safely get the base URLs depending on runtime
-function getMainApiUrl() {
-  if (typeof window !== "undefined") {
-    return window.location.protocol === "https:"
-      ? `https://${API_HOST}:5000`
-      : `http://${API_HOST}:5000`
-  }
-  return `http://${API_HOST}:5000` // default for SSR
-}
-
-function getPaymentApiUrl() {
-  if (typeof window !== "undefined") {
-    return window.location.protocol === "https:"
-      ? `https://${API_HOST}:5002`
-      : `http://${API_HOST}:5002`
-  }
-  return `http://${API_HOST}:5002`
-}
-
-function getVerificationApiUrl() {
-  if (typeof window !== "undefined") {
-    return window.location.protocol === "https:"
-      ? `https://${API_HOST}:5001`
-      : `http://${API_HOST}:5001`
-  }
-  return `http://${API_HOST}:5001`
-}
-
-// Export a default base URL
-export const API_BASE_URL = getMainApiUrl()
+// Single API base URL for all endpoints
+export const API_BASE_URL = "https://lalushbella.com/api"
 
 // Generic API client
 export async function apiClient<T>(
@@ -38,14 +7,12 @@ export async function apiClient<T>(
   {
     data,
     token,
-    baseUrl = getMainApiUrl(), // SSR-safe
     ...customConfig
   }: {
     data?: any
     token?: string
     method?: string
     headers?: HeadersInit
-    baseUrl?: string
   } = {},
 ): Promise<T> {
   const config = {
@@ -56,105 +23,38 @@ export async function apiClient<T>(
       ...(token && { Authorization: `Bearer ${token}` }),
       ...customConfig.headers,
     },
-    mode: "cors" as RequestMode,
-    credentials: "include" as RequestCredentials,
     ...customConfig,
   }
 
   try {
-    console.log(`API Request to ${baseUrl}${endpoint}:`, {
+    console.log(`API Request to ${API_BASE_URL}${endpoint}:`, {
       method: config.method,
       headers: config.headers,
       body: config.body ? JSON.parse(config.body as string) : undefined,
     })
 
-    try {
-      const response = await fetch(`${baseUrl}${endpoint}`, config)
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, config)
 
-      console.log(`API Response from ${endpoint}:`, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries([...response.headers]),
-      })
+    console.log(`API Response from ${endpoint}:`, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries([...response.headers]),
+    })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error(`API Error from ${endpoint}:`, errorData)
-        return Promise.reject(
-          new Error(
-            errorData.message || errorData.error || `API Error: ${response.status} ${response.statusText}`,
-          ),
-        )
-      }
-
-      const responseData = await response.json()
-      console.log(`API Success from ${endpoint}:`, responseData)
-      return responseData
-    } catch (directError) {
-      console.error(`Direct API request failed:`, directError)
-
-      // Handle HTTPS-to-HTTP scenario only on client
-      if (
-        typeof window !== "undefined" &&
-        window.location.protocol === "https:" &&
-        baseUrl.startsWith("http:")
-      ) {
-        try {
-          console.log(`Trying CORS proxy for ${endpoint}`)
-          const proxyUrl = `https://cors-anywhere.herokuapp.com/${baseUrl}${endpoint}`
-          const proxyResponse = await fetch(proxyUrl, config)
-
-          if (!proxyResponse.ok) {
-            const errorData = await proxyResponse.json().catch(() => ({}))
-            return Promise.reject(
-              new Error(
-                errorData.message ||
-                  errorData.error ||
-                  `API Error via proxy: ${proxyResponse.status}`,
-              ),
-            )
-          }
-
-          const proxyData = await proxyResponse.json()
-          console.log(`API Success via proxy from ${endpoint}:`, proxyData)
-          return proxyData
-        } catch (proxyError) {
-          console.error(`CORS proxy failed:`, proxyError)
-          throw proxyError
-        }
-      }
-
-      throw directError
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error(`API Error from ${endpoint}:`, errorData)
+      return Promise.reject(
+        new Error(errorData.message || errorData.error || `API Error: ${response.status} ${response.statusText}`),
+      )
     }
+
+    const responseData = await response.json()
+    console.log(`API Success from ${endpoint}:`, responseData)
+    return responseData
   } catch (error) {
     console.error(`API Exception from ${endpoint}:`, error)
     return Promise.reject(error)
-  }
-}
-
-
-// Create a CORS proxy function to handle CORS issues if needed
-export async function fetchWithCorsProxy<T>(url: string, options: RequestInit = {}): Promise<T> {
-  // Use a CORS proxy if direct requests fail
-  const corsProxyUrl = `https://cors-anywhere.herokuapp.com/${url}`
-
-  try {
-    console.log(`Trying direct request to: ${url}`)
-    const directResponse = await fetch(url, options)
-    if (directResponse.ok) {
-      return await directResponse.json()
-    }
-
-    console.log(`Direct request failed, trying CORS proxy: ${corsProxyUrl}`)
-    const proxyResponse = await fetch(corsProxyUrl, options)
-    if (!proxyResponse.ok) {
-      throw new Error(`Proxy request failed: ${proxyResponse.status} ${proxyResponse.statusText}`)
-    }
-
-    return await proxyResponse.json()
-  } catch (error) {
-    console.error("Error with CORS proxy fetch:", error)
-    throw error
   }
 }
 
@@ -918,7 +818,6 @@ export async function createPaymentAccount(
     const response = await apiClient<{ account_id: number; message: string }>("/payment_accounts", {
       data: accountData,
       token,
-      baseUrl: PAYMENT_API_URL, // Use payment service URL
     })
     return response
   } catch (error) {
@@ -935,7 +834,6 @@ export async function getPaymentAccounts(
   try {
     return await apiClient<{ accounts: any[]; count: number }>(`/users/${customerId}/payment_accounts`, {
       token,
-      baseUrl: PAYMENT_API_URL, // Use payment service URL
     })
   } catch (error) {
     console.error("Error getting payment accounts:", error)
@@ -949,7 +847,6 @@ export async function deletePaymentAccount(accountId: number, token: string): Pr
     return await apiClient<{ message: string }>(`/payment_accounts/${accountId}`, {
       method: "DELETE",
       token,
-      baseUrl: PAYMENT_API_URL, // Use payment service URL
     })
   } catch (error) {
     console.error("Error deleting payment account:", error)
@@ -967,7 +864,6 @@ export async function initiateAccountVerification(
     return await apiClient<{ verification_id: number; status: string; reference_number?: string }>("/verify_account", {
       data: { account_id: accountId },
       token,
-      baseUrl: VERIFICATION_API_URL, // Use verification service URL
     })
   } catch (error) {
     console.error("Error initiating account verification:", error)
@@ -985,7 +881,6 @@ export async function checkVerificationStatus(
       `/verification_status/${verificationId}`,
       {
         token,
-        baseUrl: VERIFICATION_API_URL, // Use verification service URL
       },
     )
   } catch (error) {
@@ -1008,7 +903,6 @@ export async function createPayout(
     return await apiClient<{ payout_id: number; status: string }>("/create_payout", {
       data: payoutData,
       token,
-      baseUrl: PAYMENT_API_URL, // Use payment service URL
     })
   } catch (error) {
     console.error("Error creating payout:", error)
@@ -1024,11 +918,9 @@ export async function checkPayoutStatus(
   try {
     return await apiClient<{ payout_id: number; status: string; payout_date?: string }>(`/payout_status/${payoutId}`, {
       token,
-      baseUrl: PAYMENT_API_URL, // Use payment service URL
     })
   } catch (error) {
     console.error("Error checking payout status:", error)
     throw error
   }
 }
-
